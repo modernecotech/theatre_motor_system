@@ -10,4 +10,15 @@ The main version is using the WiFi of the ESP32 and receives UDP broadcasts from
 
 Finally a python script to send the codes by UDP to all the motors. 
 
+the code to drive the motors is as follows. 
 
+M01 - Motor number
+D or U - "Down" (turning direction)
+100 - Speed as an integer between 0 and 255 with 0 being stopped state. 
+
+an example code 
+
+M01D50 - turn motor 1 downwards at a speed of 50 
+M02U100 - turn motor 2 up at a speed of 100 
+
+etc... 
