@@ -11,8 +11,8 @@
 // motor number
 const String motor = "1";
 // Replace with your network credentials
-const char* ssid = "pies";
-const char* password = "richardrobot";
+const char* ssid = "";
+const char* password = "";
 
 
 // refresh times to check for wifi connection
@@ -92,7 +92,7 @@ void setup() {
   
   // start the serial port listener
   Serial.begin(115200);
-  // initWiFi();
+  initWiFi();
   delay(1000);
 
   // Initialize the AppleMIDI library
