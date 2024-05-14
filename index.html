@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Motor Controller</title>
+</head>
+<body>
+<h1>Motor Controller</h1>
+<label for="motor_number">Motor Number:</label>
+<select id="motor_number" onchange="updateButton(event)">
+<option value="1">1</option>
+</select> :
+<button type="button" id="up-button" onclick="updateButton('up')">Up</button>
+<button type="button" id="down-button" onclick="updateButton('down')">Down</button>
+<button type="button" id="stop-button" onclick="updateButton('stop')">Stop</button>
+<button type="button" id="floor-button" onclick="updateButton('floor')">Set Floor Level</button>
+<button type="button" id="top-button" onclick="updateButton('top')">Set Top Level</button>
+<script>
+window.onload = function() {
+    //const options = ['Option 1', 'Option 2', 'Option 3', 'Option 4'];
+    const options = [$motors];
+
+    // Get a reference to the existing select element
+    const selectElement = document.getElementById('motor_number');
+
+    // Clear existing options
+    selectElement.options.length = 0;
+
+    // Create a default option
+//    const defaultOption = document.createElement('option');
+//    defaultOption.value = '';
+//    defaultOption.text = 'Select an option';
+//    selectElement.add(defaultOption);
+
+    // Create an option for each string in the array
+    options.forEach((option) => {
+      const optionElement = document.createElement('option');
+      optionElement.value = option;
+      optionElement.text = option;
+      selectElement.add(optionElement);
+    });
+}
+
+let activeButton = null;
+
+    function updateButton(event) {
+    const motorSelect = document.getElementById('motor_number');
+    const motorNumber = motorSelect.value;
+        let cgiScriptUrl;
+        let buttonId = event;
+
+        if (typeof event === 'string') {
+            //cgiScriptUrl = `/cgi-bin/midi.py`;
+            cgiScriptUrl = `/`;
+        } else {
+            return;
+        }
+
+        // Convert the relative path to an absolute path
+        const baseUrl = new URL(location.origin);
+        const absoluteCgiScriptUrl = new URL(cgiScriptUrl, baseUrl);
+
+        const params = {
+            motor_number: motorNumber,
+            command: buttonId
+        };
+        // Reset button styles only if there's an active button
+        if (activeButton !== null) {
+            const button = document.getElementById(activeButton + '-button');
+            button.style.backgroundColor = 'unset';
+            button.style.color = 'unset';
+        }
+        activeButton = null;
+
+        absoluteCgiScriptUrl.search = new URLSearchParams(params).toString();
+
+        fetch(absoluteCgiScriptUrl)
+            .then(response => response.text())
+            .then(result => console.log('Success:', result))
+            .catch(error => console.error('Error:', error));
+    }
+</script>
+
+</body>
+</html>
+
