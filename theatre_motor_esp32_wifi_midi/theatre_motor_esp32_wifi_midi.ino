@@ -125,7 +125,7 @@ void MidiNoteOnCallback(uint8_t channel, uint8_t note, uint8_t velocity)
   Serial.println(motorPosition);
 
   if (note==0) {
-    MotorSpeed = velocity;
+    MotorSpeed = velocity * 2;
     Serial.print("Setting Motor speed:");
     Serial.println(MotorSpeed);
     if (ledcRead(pwmChannel) > 0) {
