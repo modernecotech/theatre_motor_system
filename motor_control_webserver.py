@@ -4,7 +4,7 @@ from string import Template
 import rtmidi
 import json
 
-cmd_map={'stop':1,'up':2,'down':3,'floor':4,'top':5}
+cmd_map={'stop':1,'up':2,'down':3,'floor':4,'top':5,'rigtop':6,'stepup':10,'stepdown':11}
 
 
 # WSGI application. Displays index.html with filled in MIDI ports
