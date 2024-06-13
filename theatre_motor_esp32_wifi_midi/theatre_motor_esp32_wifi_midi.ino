@@ -5,10 +5,15 @@
 #include <WiFiUdp.h>
 #include "esp32-hal-ledc.h"
 #include <ezButton.h>
-#include <ArduinoMDNS.h>
 #include <ESPmDNS.h>
+#include <Preferences.h>
+#include <WebServer.h>
+#include <HTTPUpdateServer.h>
 
-// use arduino upesy ESP32 WROOM devkit as device.
+WebServer httpServer(80);
+HTTPUpdateServer httpUpdater;
+
+// use Arduino Board: "uPesy ESP32 Wroom DevKit" as device.
 
 // motor name/number
 const String motor = "motor1";
@@ -16,6 +21,10 @@ const String motor = "motor1";
 const char* ssid = "";
 const char* password = "";
 
+#define RW_MODE false
+#define RO_MODE true
+// For non-volatile storage
+Preferences prefs;
 
 // refresh times to check for wifi connection
 unsigned long previousMillis = 0;
@@ -41,12 +50,16 @@ const int pwmChannel = 0;
 const int resolution = 8;
 
 //rotation of the motor
-int rotationCounter = 0;
-int rotationSet = -1;
+int rotationCounter;
+bool rotationSet = false;
+int rotationTarget = 0;
 bool on_state = false;
 int positionFactor = 1;
-int floorPosition = 128;
+int rigTopPosition;
+int topPosition;
 int MotorSpeed = 100;
+bool stopMotor = false;
+int dir = -1;
 
 APPLEMIDI_CREATE_DEFAULTSESSION_INSTANCE();
 
@@ -56,7 +69,7 @@ void initWiFi() {
   WiFi.mode(WIFI_STA);
   WiFi.setAutoConnect(true);
   WiFi.setAutoReconnect(true);
-  WiFi.config(INADDR_NONE, INADDR_NONE, INADDR_NONE, INADDR_NONE);
+//  WiFi.config(INADDR_NONE, INADDR_NONE, INADDR_NONE, INADDR_NONE);
   WiFi.setHostname(motor.c_str()); //use the motor name as hostname
   WiFi.begin(ssid, password);
   while (WiFi.status() != WL_CONNECTED) {
@@ -79,28 +92,46 @@ void MidiProgramChangeCallback(uint8_t channel, uint8_t progNumber)
 //    cmd_map={'stop':1,'up':2,'down':3,'floor':4}
   switch (progNumber) {
     case 1:
-      ledcWrite(pwmChannel, 0); // Stop Motor
+//      ledcWrite(pwmChannel, 0); // Stop Motor
       Serial.println("Stopping motor");
+      stopMotor = true;
       break;
     case 2:
       ledcWrite(pwmChannel, 100);
       digitalWrite(DIR, HIGH);
-      Serial.println("Moving motor FORWARD(HIGH)");
+      Serial.println("Moving motor UP/FORWARD(HIGH)");
       break;
     case 3:
       ledcWrite(pwmChannel, 100);
       digitalWrite(DIR, LOW);
-      Serial.println("Moving motor BACK(LOW)");
+      Serial.println("Moving motor DOWN/BACK(LOW)");
       break;
     case 4:
-      Serial.print("Setting Floor at:");
-      Serial.println(rotationCounter);
-      floorPosition = rotationCounter;
-      break;
-    case 5:
-      Serial.print("Setting Top(zero) at:");
+      Serial.print("Setting Floor(zero) at: 0   | Current position was: ");
       Serial.println(rotationCounter);
       rotationCounter = 0;
+     break;
+    case 5:
+      Serial.print("Setting Stage Top at:");
+      Serial.println(rotationCounter);
+      topPosition = rotationCounter;
+      prefs.putInt("topPosition", topPosition);
+     break;
+    case 6:
+      Serial.print("Setting Rigging Top at:");
+      Serial.println(rotationCounter);
+      rigTopPosition = rotationCounter;
+      prefs.putInt("rigTopPosition", rigTopPosition);
+      break;
+    case 10:
+      Serial.print("Step up:");
+      Serial.println(rotationCounter);
+      setMotorPosition(rotationCounter + 1);
+      break;
+    case 11:
+      Serial.print("Step down:");
+      Serial.println(rotationCounter);
+      setMotorPosition(rotationCounter - 1);
       break;
     default:
       // statements
@@ -110,9 +141,8 @@ void MidiProgramChangeCallback(uint8_t channel, uint8_t progNumber)
   
 void MidiNoteOnCallback(uint8_t channel, uint8_t note, uint8_t velocity)
 {
-  unsigned int motorPosition;
-  
-  motorPosition = (floorPosition * (127-velocity)) / 127;
+  // velocity in Live only varies between 1-127 (a range of 126)
+  int newMotorPosition = (topPosition * (velocity-1)) / 126;
 
   // Do something with the received MIDI message here
   Serial.print("MIDI: NoteOn: channel:");
@@ -120,9 +150,7 @@ void MidiNoteOnCallback(uint8_t channel, uint8_t note, uint8_t velocity)
   Serial.print(" note:");
   Serial.print(note);
   Serial.print(" velocity:");
-  Serial.print(velocity);
-  Serial.print(" Moving to Position:");
-  Serial.println(motorPosition);
+  Serial.println(velocity);
 
   if (note==0) {
     MotorSpeed = velocity * 2;
@@ -133,21 +161,52 @@ void MidiNoteOnCallback(uint8_t channel, uint8_t note, uint8_t velocity)
     }
     return;
   }
+  setMotorPosition(newMotorPosition);
+}
 
-  if (motorPosition < rotationCounter) {
-    // motor up at speed 100 - use "rotationCounter" to manage when it stops
-    rotationSet = motorPosition;
+void setMotorPosition(int newMotorPosition) {
+  
+  if (newMotorPosition > rotationCounter) {
+    // motor up at MotorSpeed - use "rotationCounter" to manage when it stops
+    rotationSet = true;
+    rotationTarget = newMotorPosition;
     ledcWrite(pwmChannel, MotorSpeed);
     digitalWrite(DIR, HIGH);
-    Serial.println("Moving motor FORWARD(HIGH)");
-  } else if (motorPosition > rotationCounter) {
-    // motor DOWN at speed 100 - use "rotationCounter" to manage when it stops
-    rotationSet = motorPosition;
+    Serial.print(" Moving UP/Forward(HIGH) to Position:");
+    Serial.println(newMotorPosition);
+  } else if (newMotorPosition < rotationCounter) {
+    // motor DOWN at speed MotorSpeed - use "rotationCounter" to manage when it stops
+    rotationSet = true;
+    rotationTarget = newMotorPosition;
     ledcWrite(pwmChannel, MotorSpeed);
     digitalWrite(DIR, LOW);
-    Serial.println("Moving motor BACK(LOW)");
+    Serial.print(" Moving DOWN/Back(LOW) to Position:");
+    Serial.println(newMotorPosition);
   }
 }
+
+void hall_irq_fall() {
+  if (digitalRead(DIR) == LOW) { // Down
+    if (dir == HIGH) {
+      dir = LOW;
+      rotationCounter += 1;
+    } else {
+      dir = LOW;
+    }
+  }
+}
+
+void hall_irq_rise() {
+  if (digitalRead(DIR) == LOW) { // Down
+    if (dir == HIGH) {
+      dir = LOW;
+    } else {
+      dir = LOW;
+      rotationCounter -= 1;
+    }
+  }
+}
+
 
 void setup() {
   // set the pinmode, this runs once on boot:
@@ -155,6 +214,9 @@ void setup() {
   ledcAttachPin(PWM, pwmChannel);
   pinMode(DIR, OUTPUT);
   pinMode(hall_pin, INPUT);
+//  attachInterrupt(digitalPinToInterrupt(hall_pin), hall_irq_fall, FALLING);
+//  attachInterrupt(digitalPinToInterrupt(hall_pin), hall_irq_rise, RISING);
+  
 
   // default all to low
   ledcWrite(pwmChannel, 0); // Motor speed 0 to 255
@@ -168,31 +230,53 @@ void setup() {
   initWiFi();
   delay(1000);
 
+  prefs.begin("motor", RW_MODE);
+
+  rigTopPosition = prefs.getInt("rigTopPosition", 0);
+  topPosition = prefs.getInt("topPosition", 0);
+  rotationCounter = prefs.getInt("rotationCounter", 0);
+  
+  Serial.print("Stored prefs: rigTopPosition: ");
+  Serial.print(rigTopPosition);
+  Serial.print(", topPosition: ");
+  Serial.print(topPosition);
+  Serial.print(", rotationCounter: ");
+  Serial.println(rotationCounter);
+
+
   // Initialize the AppleMIDI library
   MIDI.begin(); // listens on channel 1
   MIDI.setHandleNoteOn(MidiNoteOnCallback);
   MIDI.setHandleProgramChange(MidiProgramChangeCallback);
   AppleMIDI.setHandleConnected([](const APPLEMIDI_NAMESPACE::ssrc_t & ssrc, const char* name) {
-  Serial.println("AppleMIDI: Connected");
+    Serial.println("AppleMIDI: Connected");
   });
 
   // Set up mDNS responder
   if (!MDNS.begin(motor.c_str())) {
     Serial.println("Error setting up MDNS responder!");
-    while (1) {
-      delay(1000);
-    }
   }
+  httpServer.on("/", HTTP_GET, []() {
+    httpServer.sendHeader("Connection", "close");
+    httpServer.send(200, "text/html", "<h1>Motor1</h1>");
+  });
+  httpUpdater.setup(&httpServer);
+  httpServer.begin();
+  MDNS.addService("http", "tcp", 80);
+  Serial.printf("HTTPUpdateServer ready! Open http://%s.local/update in your browser\n", motor.c_str());
+
   // Add apple-midi mDNS service so it appears in MIDI browser
   MDNS.addService("_apple-midi", "udp", AppleMIDI.getPort());
-  Serial.println("mDNS responder started");
+  Serial.println("mDNS responder started"); 
+   
 }
 
 
 void loop() {
   unsigned long currentMillis = millis();
   limitSwitch.loop();  // MUST call the loop() function first
-  
+  httpServer.handleClient();
+
   // put your main code here, to run repeatedly:
   // if WiFi is down, try reconnecting every CHECK_WIFI_TIME seconds
   if ((WiFi.status() != WL_CONNECTED) && (currentMillis - previousMillis >= interval)) {
@@ -206,9 +290,11 @@ void loop() {
   MIDI.read();
 
   if (limitSwitch.isPressed()) {
-    rotationCounter = 0;
+//    rotationCounter = 0;
     ledcWrite(pwmChannel, 0); // Stop Motor
     Serial.println("The limit switch is touched");
+    // Store position
+    prefs.putInt("rotationCounter", rotationCounter);
   }
 
   // counting number of times the hall sensor is tripped
@@ -216,30 +302,28 @@ void loop() {
   if (digitalRead(hall_pin) == 0) {
     if (on_state == false) {
       on_state = true;
-      if (digitalRead(DIR) == 0) {
-        rotationCounter += 1;
-      } else {
-//        if (rotationCounter != 0) {
-          rotationCounter -= 1;
-//        } else {
-//          Serial.println("Motor moved to position zero. Stopping.");
-//          ledcWrite(pwmChannel, 0);
-//        }
-      }
-      Serial.print("rotationCounter:");
-      Serial.print(rotationCounter);
-      Serial.print(" rotationSet:");
-      Serial.println(rotationSet);
-      if ((rotationSet >= 0) && (rotationCounter == rotationSet)) {
-        ledcWrite(pwmChannel, 0); // Stop Motor
-        Serial.print("Motor moved to position and stopped at:");
-        Serial.println(rotationSet);
-        rotationSet = -1;
+      if (ledcRead(pwmChannel) > 0) {
+        if (digitalRead(DIR) == LOW) { // Down
+            rotationCounter -= 1;
+        } else {
+            rotationCounter += 1;
+        }
+        Serial.print("rotationCounter:");
+        Serial.print(rotationCounter);
+        Serial.print(" rotationTarget:");
+        Serial.println(rotationTarget);
+        if ((rotationSet && (rotationCounter == rotationTarget)) || stopMotor) {
+          stopMotor = false;
+          ledcWrite(pwmChannel, 0); // Stop Motor
+          Serial.print("Motor moved to position and stopped at:");
+          Serial.println(rotationTarget);
+          rotationSet = false;
+          // Store position
+          prefs.putInt("rotationCounter", rotationCounter);
+        }
       }
     }
   } else {
     on_state = false;
   }
-
-
 }
