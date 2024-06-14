@@ -51,7 +51,7 @@ const int resolution = 8;
 
 //rotation of the motor
 int rotationCounter;
-bool rotationSet = false;
+bool movingToTarget = false;
 int rotationTarget = 0;
 bool on_state = false;
 int positionFactor = 1;
@@ -165,23 +165,37 @@ void MidiNoteOnCallback(uint8_t channel, uint8_t note, uint8_t velocity)
 }
 
 void setMotorPosition(int newMotorPosition) {
-  
+  rotationTarget = newMotorPosition;
   if (newMotorPosition > rotationCounter) {
-    // motor up at MotorSpeed - use "rotationCounter" to manage when it stops
-    rotationSet = true;
-    rotationTarget = newMotorPosition;
+    // Move motor Up at MotorSpeed - use "rotationCounter" to manage when it stops
+    if (movingToTarget && (digitalRead(DIR) == LOW)) {
+        rotationCounter--;
+        Serial.printf("Already moving down to target - Adjusting");
+    }
+    movingToTarget = true;
     ledcWrite(pwmChannel, MotorSpeed);
     digitalWrite(DIR, HIGH);
-    Serial.print(" Moving UP/Forward(HIGH) to Position:");
+    Serial.printf("Moving UP/Forward(HIGH) to Position:");
     Serial.println(newMotorPosition);
   } else if (newMotorPosition < rotationCounter) {
-    // motor DOWN at speed MotorSpeed - use "rotationCounter" to manage when it stops
-    rotationSet = true;
-    rotationTarget = newMotorPosition;
+    // Move motor Down at speed MotorSpeed - use "rotationCounter" to manage when it stops
+    if (movingToTarget && (digitalRead(DIR) == HIGH)) {
+        rotationCounter++;
+        Serial.printf("Already moving up to target - Adjusting");
+    }
+    movingToTarget = true;
     ledcWrite(pwmChannel, MotorSpeed);
     digitalWrite(DIR, LOW);
-    Serial.print(" Moving DOWN/Back(LOW) to Position:");
+    Serial.print("Moving DOWN/Back(LOW) to Position:");
     Serial.println(newMotorPosition);
+  } else if (movingToTarget && (newMotorPosition == rotationCounter)) {
+    if (digitalRead(DIR) == LOW) { // Going Down
+      rotationCounter--;
+      digitalWrite(DIR, HIGH);
+    } else {
+      rotationCounter++;
+      digitalWrite(DIR, LOW);
+    }
   }
 }
 
@@ -304,20 +318,20 @@ void loop() {
       on_state = true;
       if (ledcRead(pwmChannel) > 0) {
         if (digitalRead(DIR) == LOW) { // Down
-            rotationCounter -= 1;
+            rotationCounter--;
         } else {
-            rotationCounter += 1;
+            rotationCounter++;
         }
         Serial.print("rotationCounter:");
         Serial.print(rotationCounter);
         Serial.print(" rotationTarget:");
         Serial.println(rotationTarget);
-        if ((rotationSet && (rotationCounter == rotationTarget)) || stopMotor) {
+        if ((movingToTarget && (rotationCounter == rotationTarget)) || stopMotor) {
           stopMotor = false;
           ledcWrite(pwmChannel, 0); // Stop Motor
           Serial.print("Motor moved to position and stopped at:");
           Serial.println(rotationTarget);
-          rotationSet = false;
+          movingToTarget = false;
           // Store position
           prefs.putInt("rotationCounter", rotationCounter);
         }
