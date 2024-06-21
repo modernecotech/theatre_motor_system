@@ -12,6 +12,7 @@
 //#include <HTTPUpdateServer.h>
 #include <ESPAsyncWebServer.h>
 #include <AsyncTCP.h>
+#include <AsyncElegantOTA.h>
 
 AsyncWebServer httpServer(80);
 //WebServer httpServer(80);
@@ -337,7 +338,8 @@ void setup() {
 //    httpServer.sendHeader("Connection", "close");
 //    httpServer.send(200, "text/html", "<h1>Motor1</h1>");
 //  });
-  
+
+  AsyncElegantOTA.begin(&httpServer);    // Start ElegantOTA  
 //  httpUpdater.setup(&httpServer);
   httpServer.begin();
   MDNS.addService("http", "tcp", 80);
