@@ -9,7 +9,7 @@
 #include <Preferences.h>
 //#include <WebServer.h>
 //#include <uri/UriBraces.h>
-#include <HTTPUpdateServer.h>
+//#include <HTTPUpdateServer.h>
 #include <ESPAsyncWebServer.h>
 #include <AsyncTCP.h>
 
@@ -55,6 +55,7 @@ const int resolution = 8;
 
 //rotation of the motor
 int rotationCounter;
+int rotationUpdate = 0;
 bool movingToTarget = false;
 int rotationTarget = 0;
 bool on_state = false;
@@ -173,8 +174,8 @@ void setMotorPosition(int newMotorPosition) {
   if (newMotorPosition > rotationCounter) {
     // Move motor Up at MotorSpeed - use "rotationCounter" to manage when it stops
     if (movingToTarget && (digitalRead(DIR) == LOW)) {
-        rotationCounter--;
-        Serial.printf("Already moving down to target - Adjusting");
+        rotationUpdate = -1;
+        Serial.printf("Already moving down to target - Adjusting -1");
     }
     movingToTarget = true;
     ledcWrite(pwmChannel, MotorSpeed);
@@ -184,8 +185,8 @@ void setMotorPosition(int newMotorPosition) {
   } else if (newMotorPosition < rotationCounter) {
     // Move motor Down at speed MotorSpeed - use "rotationCounter" to manage when it stops
     if (movingToTarget && (digitalRead(DIR) == HIGH)) {
-        rotationCounter++;
-        Serial.printf("Already moving up to target - Adjusting");
+        rotationUpdate = 1;
+        Serial.printf("Already moving up to target - Adjusting +1");
     }
     movingToTarget = true;
     ledcWrite(pwmChannel, MotorSpeed);
@@ -194,11 +195,13 @@ void setMotorPosition(int newMotorPosition) {
     Serial.println(newMotorPosition);
   } else if (movingToTarget && (newMotorPosition == rotationCounter)) {
     if (digitalRead(DIR) == LOW) { // Going Down
-      rotationCounter--;
+      rotationUpdate = -1;
       digitalWrite(DIR, HIGH);
+      Serial.printf("Already at target - Adjusting -1");
     } else {
-      rotationCounter++;
+      rotationUpdate = 1;
       digitalWrite(DIR, LOW);
+      Serial.printf("Already at target - Adjusting +1");
     }
   }
 }
@@ -378,6 +381,8 @@ void loop() {
     if (on_state == false) {
       on_state = true;
       if (ledcRead(pwmChannel) > 0) {
+        rotationCounter += rotationUpdate;
+        rotationUpdate = 0;
         if (digitalRead(DIR) == LOW) { // Down
             rotationCounter--;
         } else {
