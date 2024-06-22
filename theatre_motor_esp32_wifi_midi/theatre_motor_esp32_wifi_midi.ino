@@ -177,6 +177,8 @@ void setMotorPosition(int newMotorPosition) {
     if (movingToTarget && (digitalRead(DIR) == LOW)) {
         rotationUpdate = -1;
         Serial.printf("Already moving down to target - Adjusting -1");
+    } else {
+        rotationUpdate = 0;
     }
     movingToTarget = true;
     ledcWrite(pwmChannel, MotorSpeed);
@@ -188,6 +190,8 @@ void setMotorPosition(int newMotorPosition) {
     if (movingToTarget && (digitalRead(DIR) == HIGH)) {
         rotationUpdate = 1;
         Serial.printf("Already moving up to target - Adjusting +1");
+    } else {
+        rotationUpdate = 0;
     }
     movingToTarget = true;
     ledcWrite(pwmChannel, MotorSpeed);
@@ -204,7 +208,9 @@ void setMotorPosition(int newMotorPosition) {
       digitalWrite(DIR, LOW);
       Serial.printf("Already at target - Adjusting +1");
     }
-  }
+  } else {
+      rotationUpdate = 0;
+    }
 }
 
 void hall_irq_fall() {
